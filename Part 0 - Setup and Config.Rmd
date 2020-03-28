@@ -1,0 +1,35 @@
+---
+title: "Part 0 - Setting Up and Configuration"
+author: "JC Harrop"
+date: "27/03/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This is part of a series introducing basic database concepts specifically aimed at geolscientists. Since
+many geoscientists are actively invovled in data collection, there is significant balue in appreciating how
+that data is stored and processed.  Finding out first hand what issues arise during data cleaning and how
+data representation affects later querying gives insights into how to collect data that is clean and has
+clear meaning.
+
+This initial part of the series deals with setting up databases and data to enable the reader to practice 
+the subjects described.
+
+Although this is introductory and not intended to be in depth database training, it should enable a 
+motivated reader to start using a database quickly and learn through experience.  Example data is used
+through the series but the reader is encouraged to take their own data and work with it as well.  This
+goes a lot further to establishing methods that can be put to practical use on the job.
+
+This document is maintained as a Github repo and readers are encouraged to pull a working copy of the R 
+Markdown to try out the examples on their own data.
+
+## PostgreSQL
+
+## SQLite
+
+## Clients and Command Line
+
+## Data
