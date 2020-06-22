@@ -1,0 +1,258 @@
+---
+title: "Part 1 - Make a Database"
+author: "JC Harrop"
+date: "26/01/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This is part one of a series introducing basic database concepts specifically aimed at geolscientists. Since
+many geoscientists are actively invovled in data collection, there is significant balue in appreciating how
+that data is stored and processed.  Finding out first hand what issues arise during data cleaning and how
+data representation affects later querying gives insights into how to collect data that is clean and has
+clear meaning.
+
+Although this is introductory and not intended to be in depth database training, it should enable a 
+motivated reader to start using a database quickly and learn through experience.
+
+This document is maintained as a Github repo and readers are encouraged to pull a working copy of the R 
+Markdown to try out the examples on their own data.
+
+## Moving to a Database - Why bother?
+
+So far, all of the processing of LIBS data has been managed in spreadsheets, stored in CSV format and 
+processed in R.  Reporting has been at least in partly done in R Markdown to enable quick visualization 
+of results while still in the field.  This approach to monitoring a survey has been more like a geophysical 
+survey than a typical geochemical survey which generally needs to wait for lab results before interpretation
+can take place.  Using LIBS 
+effectively takes the lab to the field and enables review of the results while the programme is underway so
+that adjustments to the sampling protocol and extentions to the survey can be implemented while the crew is 
+still in the field.
+
+The amount of data collected with a LIBS instrument (~15,000 measurements in two months) quickly starts to exceed what can be managed by 
+spreadsheets.  Although backup systems can be used to protect against accidential modification of the
+data, the size of the spreadsheets is becoming unwieldy for porcessing and interpretation.  This is a 
+logical place for a natural progression to database systems.
+
+In moving to a database system for LIBS data we can continue to work in the two tier design imemented in
+the data management stack that seperates well protected data asset storage from working directories where 
+data is being processed and interpreted.  The database system, a relational database, functions as a data 
+asset repository from which **data pulls** can be used to generate a data set for processing and 
+interpretation.  Periodic database updates can also be triggers for generating standard data products.  For
+example, the LIBS data for Moylisha could be one of these standard data products and fits into a (large)
+spreadsheet for loading into a GIS or other processing.  This inly needs to be updated when some new data
+for Mlylisha is added to the master database.  R can just as easily connect directly to the master
+database as to a spreadsheet for processing data.
+
+Several key advantages of a structured database such as a relational database include:
+
+### Size stops being a problem
+The amount of data can easily be in the thousands to millions of records without being a problem for 
+traditional database technology.  Eventualy, if the size of a database approaches **big data** then other
+technology shifts are needed to deal with storage and processing of big data sets.  The transition to big
+data is not defined by size but by the point where a relational database is becoming bogged down.  That size
+has increased over the years but not as fast as data!  Currently that transition is necessary at a few tens
+of terabytes of data for the top relational databases and earlier for most.
+
+### Type consistency is enforced
+Data comes in many forms from a person's name represented as a text string to integers, real numbers, dates
+and boolean values that record true/false information about something.  The kind of data is calld a **type**
+and conversion between two types is called **casting**.  For example, if data has been read from a CSV file 
+(which has no type associated with each field) the program may have interpreted a column of data to be text,
+also called strings.  This data will not be useable in a calculation until it is cast into a nueric type 
+such as integer or real.  Some computer systems such as Excel and Python have relaxed rules about assigning 
+type to data, while other systems such as Java, C and databases have explicit types defined prior to the
+dtaa even being loaded.
+
+Although Excel applies *data types* in formatting, a spreadsheet does not enforce types in cells.  A 
+relational database is made up of tables, similar to Excel spreadsheets, but each column has a specific type
+and all records must comply with the defined type in each column.  CSV files are very useful for data transfer which is where they are most often encountered.
+
+In addition to checking type, a database design implements some degree of *noralization* which adds 
+additional data consistenct checks.  Normalization of the LIBS data is the topic of the following part
+of this series.
+
+### Data selection is better controlled
+Data selection is done using SELECT statements in SQL (structured query language).  These are written 
+as small text files and run on the database as small programs.  They can become quite complex, but becasue 
+they are written they can be reused consistently.  Data selection instructions are usually called a 
+**query**.
+
+SELECT statements are powerful in they ways they can select, group and re-order results.  Calculations can  
+be included for generating new fields or updating exitsing ones.  Aggregate statistics and summaries are
+also supported in the SELECT statement.  Queries are covered in more detail in part 3 of this series.
+
+### Tables of data can be connected
+Multiple tables can be used in a query to create a result table that is made up of information from multiple
+tables.  Sample descriptions, station locations, geoechmical results and QAQC are kept in different tables 
+with the individual fields joined as needed to resolve queries.  In a drill hole database this would be connecting collar information with lithology, sampling data and geochemical results.  Consistency between these tables is enforced through references between tables using key fields.  This is discussed in more detail with database normalization in part 2 of the series.
+
+### Cloud service of data
+Database storage and service can be moved into the cloud resulting in that the service being acessible 
+globally to staff, cleints and colleagues with authorization.  This is also part of two tier approach to
+geoscience data management where a projects data assest (which holds the value of the project) is kept 
+seperate and static from the dynamic working directory system that has daily activity.  The two tiers have 
+distinctly different requirements and use cases.
+
+```{r initialize}
+library(tidyverse)
+library(DBI)
+library(RPostgres)
+```
+
+The first library we load is `tidyverse` which is actually a library of libraries that are used to work with
+tidy data a concept named by Hadley Wickham and that is now recognized as a best pratice in data science.
+Most of what we need for cleaning and processing data is supported by this library bundle.  The other two libraries are database specific and are discussed in more detail below.
+
+## Loading CSV Files
+
+We will load up the CSV files we were already working with on one area as an initial set of data to 
+illustrate building and loading a database.
+
+```{r loading}
+allData <- read.csv('Data/All Surface.csv')
+Samples <- read.csv('Data/Surface Samples.csv')
+Stations <- read.csv('Data/Stations.csv')
+ncol(allData)
+nrow(allData)
+```
+
+We are going to work with two open source databases that are widely used but for different scale purposes.
+The first one is SQLite, a light weight SQL engine that is easily connected to R and other programming
+languages.  This is a freely available replacement for the database engine in the MS Access product, the
+Jet engine.  Access really refers to entire system that includes forms, reports and a GUI interface to the
+Jet engine.  Since the database file associated with Jet is recognized as the Access database file, most
+developers who embed the Jet angine refer to their system as either Access compatible or built on Access.
+SQLite offers very similar functionality to Jet and also has similar limitations.  It isvery easy to stand
+up an SQLite database.
+
+## Create a Local Database
+
+```{r}
+mydb <- dbConnect(RSQLite::SQLite(), "my-db.sqlite")
+```
+
+If the file `my-db.sqlite` does not already exist in the project directory, an empty SQLite database file 
+is created.  Since we are already working with data frames loading data into tables is quite straighforward.
+An advantage of loading from data frames rather than CSV files is that the data type for each column will be transfered from
+the data frame. Loading from CSV files necesitates the system guessing what the correct data type
+should be, possiby from a column containing mixed types.
+
+```{r}
+tablenames <- dbListTables(mydb)
+
+if (length(tablenames) == 0) {
+    dbWriteTable(mydb, "Measurements", allData)
+    dbWriteTable(mydb, "Stations", Stations)
+    dbWriteTable(mydb, "Samples", Samples)
+} else {
+    if (!dbExistsTable(mydb, "Measurements"))
+        dbWriteTable(mydb, "Measurements", allData)
+    
+    if (!dbExistsTable(mydb, "Stations"))
+        dbWriteTable(mydb, "Stations", allData)
+    
+    if (!dbExistsTable(mydb, "Samples"))
+        dbWriteTable(mydb, "Samples", allData)
+}
+
+dbListTables(mydb)
+```
+
+That put three tables into the database and we confirmed they actually were loaded.  This database is 
+persitent - in other words, it will still be there as `my-db.sqlite` after you close the program you are 
+working in and reboot the system. We can now pull results from the database back into the R environment for additional processing, visualization and other work.
+
+```{r}
+dbVersionStns <- dbReadTable(mydb, 'Stations')
+```
+
+We're done!  We made a database!  Too easy. Might as well go home now?  Not quite yet, there are a few more things to cover, but that does who how quickly a connection can be established to a local, freely available database from within an R environment.
+
+### Two ways to work with the database
+
+Since this is built as an R Markdown document most of the embedded code is not surprisingly (but not 
+necessarily) in R.  Most of the database interaction has been using the DBI library interface. This interface uses easily readable function names which wrap longer SQL statements which DBI passes along to the connected database.  Functions like `dbWriteTable()` and `dbExistsTable()` have easily understood function especially if you are used to Yoda word order.
+
+Later we will use the RPostgres library which is a DBI compliant package for using PostgreSQL with DBI and 
+R.  But there is another option as well.  R Markdown code chunks are not limited to R but can include 
+Python, SQL and bash chunks among others.  Once we have established a connection to the database using DBI we can use that connection with SQL code chunks.  This will be particularly useful in later parts.  Any SQL statement that uses the dialect of the connected database can be used - and is worth while learning.
+
+All together this database support in R Markdown forms another case for the value of the R and Markdown pairing in both training and project work.  
+
+```{sql, connection=mydb, output.var="StnQuery"}
+SELECT * FROM Stations
+```
+
+The chunk parameters for the above code were `{sql, connection=mydb, output.var="StnQuery"}` so although it is not visible in what was echoed the results of this query was returned to the R environment in the StnQery variable.
+
+In addition to disconnecting from the database (`dbDisconnect(mydb)`)there is the option of deleting the 
+database file using the `unlink("my-db.sqlite")` command.  This makes sense if the database was temporary 
+and keeping the file would clutter and confuse the directories.  We will keep this connection open to the end of the demonstration.
+
+## Create a Database on a Server
+
+The server could be either the machine you are working on, often referted to by the name `localhost`,
+it could be another machine on your LAN or it could be hosted on a cloud service like Azure or AWS. To
+begin with we will work with a local server since it is easier to set and will work regardless of whether 
+you have Internet connection.  Differences between this and running from a cloud service are primarily confined to making the connection to the database server.
+
+```{r}
+
+drv <- dbDriver("Postgres")
+con2 <- dbConnect(drv, 
+                 dbname = "Avalonia", 
+                 user = "demo", 
+                 password="Ireland2020")
+
+dbListTables(con2)
+```
+
+```{sql connection=con2, eval=FALSE}
+CREATE DATABASE "Libs" TEMPLATE "spatial_demo";
+```
+
+```{r}
+dbDisconnect(con2)
+con2 <- dbConnect(drv, 
+                 dbname = "Libs", 
+                 user = "demo", 
+                 password="Ireland2020")
+
+
+```
+
+The database above exits and the user demo has access to some of the tables.  We are connecting to a local PostgraSQL server which hosts multiple databases - typically one per project.  When a PostgreSQL server is first installed there is usually one database named `default`.  The database we have connected to appears to be a drill hole database since it has a `Collars` table.  Only some users have permissions to make a new database.  Although this is normally a database administrator level permission, demo has been granted this permission as an example.  
+
+The database is created using a template database called `spatial_demo` which is an empty database that has 
+spatial support loaded alredy in the form of the PostGIS library.  This library adds significant
+functionality to the database with a rich set of spatial operations.  Since we have just created this table 
+we can be sure it is empty - exxcept perhaps for a few tables created by PostGIS and the PostgreSQL 
+software for administrative and support purposes.
+
+```{r, eval=FALSE}
+dbWriteTable(con2, "Measurements", allData)
+dbWriteTable(con2, "Stations", Stations)
+dbWriteTable(con2, "Samples", Samples)
+
+dbListTables(con2)
+```
+
+Now we have a local PostgreSQL server with the same tables as the local, SQLite database.  
+With the local SQLite database we could have created multiple connections, each to a different database file.  With a database server there is the potential to host multiple databases within the server, each with different access restrictions.  You usually work in one database at a time but like the local databases you could also open multiple connections.  Multiple connections can be useful if you have a working database for cleaning new data before you submit the cleaned and checked version to a master database.  
+
+Now we can close the databases down.
+
+```{r}
+dbDisconnect(mydb)
+#unlink("my-db.sqlite")
+
+dbDisconnect(con2)
+```
+
+## References
+
+Wickham, Hadley, 2014, Tidy Data, Jour of Stat Software, Vol 59, Is 10 http://www.jstatsoft.org/

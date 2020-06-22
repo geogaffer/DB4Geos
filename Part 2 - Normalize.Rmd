@@ -1,0 +1,35 @@
+---
+title: "Part 2 - Normalize the Database"
+author: "JC Harrop"
+date: "29/01/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Now that we have created a database and loaded something into it from several R dataframes.  These dataframes
+had been read from CSV format files which were exported from Excel spreadsheets where field notes and 
+instrument readings were being maintained.  Note that within the `tidyverse` environment we could have used 
+`dplyr` to read directly from an Excel spreadsheet file, but the example followed CSV format files since 
+that is a more widely used data transfer format.
+
+## What is Normalization?
+
+Relational databases are designed to operate effeciently with structured data where various rules governing
+data integrity are enforced.
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
